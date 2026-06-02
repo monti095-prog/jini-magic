@@ -79,26 +79,20 @@ export function useGameLogic() {
   }, [soundEnabled]);
 
   // ── Start a new game ─────────────────────────────────────
-  const startGame = useCallback(() => {
-    engineRef.current = new JiniAIEngine();
-    engineRef.current.loadLearnedEntries();
+const startGame = useCallback((theme = 'all') => {
+  engineRef.current = new JiniAIEngine();
+  engineRef.current.loadLearnedEntries();
 
-    setPhase(PHASE.THINKING);
-    setAnswers([]);
-    setQuestionCount(0);
-    setGuess(null);
-    setConfidence(0);
-    setIsCorrect(null);
-    setLearnName('');
-    setLearnAttr('');
-
-    // Brief thinking animation before first question
-    setTimeout(() => {
-      const q = engineRef.current.getNextQuestion();
-      setCurrentQ(q);
-      setPhase(PHASE.QUESTION);
-    }, 1200);
-  }, []);
+  // Filter candidates by selected theme
+  if (theme !== 'all') {
+    engineRef.current.candidates = engineRef.current.candidates.filter(c => {
+      if (theme === 'person')    return c.category === 'real_person';
+      if (theme === 'fictional') return c.category === 'fictional';
+      if (theme === 'animal')    return c.category === 'animal';
+      if (theme === 'object')    return c.category === 'object';
+      return true;
+    });
+  }
 
   // ── Handle an answer ─────────────────────────────────────
   const handleAnswer = useCallback((answerKey) => {
