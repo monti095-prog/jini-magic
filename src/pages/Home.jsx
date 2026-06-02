@@ -282,7 +282,7 @@ export default function Home({ onStart, stats, darkMode, toggleDarkMode, toggleS
 
       {/* Footer */}
       <footer className="home__footer">
-        <span>✨ Powered by Jini AI</span>
+        <span>✨ Powered by Monti Jini AI</span>
         <span className="home__footer-dot">·</span>
         <span>Think of anything</span>
       </footer>
