@@ -1,32 +1,28 @@
 // ============================================================
 // JINI MAGIC — useGameLogic Hook
-// Central game state management. Handles the full game flow:
-// questioning → guessing → result → learning → restart
 // ============================================================
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { JiniAIEngine } from '../utils/aiEngine.js';
 
-// ─── Game phases ──────────────────────────────────────────
 export const PHASE = {
-  HOME:       'home',
-  THINKING:   'thinking',
-  QUESTION:   'question',
-  GUESSING:   'guessing',
-  RESULT:     'result',
-  LEARNING:   'learning',
-  STATS:      'stats',
+  HOME:     'home',
+  THINKING: 'thinking',
+  QUESTION: 'question',
+  GUESSING: 'guessing',
+  RESULT:   'result',
+  LEARNING: 'learning',
+  STATS:    'stats',
 };
 
-// ─── Initial stats shape ──────────────────────────────────
 const DEFAULT_STATS = {
-  gamesPlayed:  0,
-  gamesWon:     0,
+  gamesPlayed:    0,
+  gamesWon:       0,
   totalQuestions: 0,
-  fastestWin:   null,   // fewest questions
-  longestGame:  null,
-  streak:       0,
-  bestStreak:   0,
+  fastestWin:     null,
+  longestGame:    null,
+  streak:         0,
+  bestStreak:     0,
 };
 
 function loadStats() {
@@ -41,15 +37,14 @@ function saveStats(stats) {
   localStorage.setItem('jini_stats', JSON.stringify(stats));
 }
 
-// ─── Hook ─────────────────────────────────────────────────
 export function useGameLogic() {
   const engineRef = useRef(new JiniAIEngine());
 
   const [phase,         setPhase]         = useState(PHASE.HOME);
   const [currentQ,      setCurrentQ]      = useState(null);
   const [questionCount, setQuestionCount] = useState(0);
-  const [answers,       setAnswers]        = useState([]);
-  const [guess,         setGuess]          = useState(null);
+  const [answers,       setAnswers]       = useState([]);
+  const [guess,         setGuess]         = useState(null);
   const [confidence,    setConfidence]    = useState(0);
   const [isCorrect,     setIsCorrect]     = useState(null);
   const [stats,         setStats]         = useState(loadStats);
@@ -58,43 +53,68 @@ export function useGameLogic() {
   const [soundEnabled,  setSoundEnabled]  = useState(
     () => localStorage.getItem('jini_sound') !== 'false'
   );
-  const [darkMode,      setDarkMode]      = useState(
+  const [darkMode, setDarkMode] = useState(
     () => localStorage.getItem('jini_dark') !== 'false'
   );
 
-  // Load learned entries on mount
   useEffect(() => {
     engineRef.current.loadLearnedEntries();
   }, []);
 
-  // Persist dark mode preference
   useEffect(() => {
     localStorage.setItem('jini_dark', darkMode);
     document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
 
-  // Persist sound preference
   useEffect(() => {
     localStorage.setItem('jini_sound', soundEnabled);
   }, [soundEnabled]);
 
-  // ── Start a new game ─────────────────────────────────────
-const startGame = useCallback((theme = 'all') => {
-  engineRef.current = new JiniAIEngine();
-  engineRef.current.loadLearnedEntries();
+  // ── Start game ────────────────────────────────────────────
+  const startGame = useCallback((theme = 'all') => {
+    engineRef.current = new JiniAIEngine();
+    engineRef.current.loadLearnedEntries();
 
-  // Filter candidates by selected theme
-  if (theme !== 'all') {
-    engineRef.current.candidates = engineRef.current.candidates.filter(c => {
-      if (theme === 'person')    return c.category === 'real_person';
-      if (theme === 'fictional') return c.category === 'fictional';
-      if (theme === 'animal')    return c.category === 'animal';
-      if (theme === 'object')    return c.category === 'object';
-      return true;
-    });
-  }
+    // Filter candidates by selected theme
+    if (theme !== 'all') {
+      engineRef.current.candidates = engineRef.current.candidates.filter(c => {
+        if (theme === 'person')    return c.category === 'real_person';
+        if (theme === 'fictional') return c.category === 'fictional';
+        if (theme === 'animal')    return c.category === 'animal';
+        if (theme === 'object')    return c.category === 'object';
+        return true;
+      });
+    }
 
-  // ── Handle an answer ─────────────────────────────────────
+    setPhase(PHASE.THINKING);
+    setAnswers([]);
+    setQuestionCount(0);
+    setGuess(null);
+    setConfidence(0);
+    setIsCorrect(null);
+    setLearnName('');
+    setLearnAttr('');
+
+    setTimeout(() => {
+      const q = engineRef.current.getNextQuestion();
+      setCurrentQ(q);
+      setPhase(PHASE.QUESTION);
+    }, 1200);
+  }, []);
+
+  // ── Trigger guess ─────────────────────────────────────────
+  const _triggerGuess = useCallback((engine, qCount) => {
+    setPhase(PHASE.GUESSING);
+    setTimeout(() => {
+      const bestGuess = engine.getBestGuess();
+      const conf      = engine.getConfidence();
+      setGuess(bestGuess);
+      setConfidence(conf);
+      setPhase(PHASE.RESULT);
+    }, 2200);
+  }, []);
+
+  // ── Handle answer ─────────────────────────────────────────
   const handleAnswer = useCallback((answerKey) => {
     if (!currentQ) return;
 
@@ -104,16 +124,14 @@ const startGame = useCallback((theme = 'all') => {
     const newCount = questionCount + 1;
     setQuestionCount(newCount);
     setAnswers(prev => [...prev, {
-      question: currentQ.text,
-      answer:   answerKey,
+      question:  currentQ.text,
+      answer:    answerKey,
       attribute: currentQ.attribute,
     }]);
 
-    // Check if we should guess now
     if (engine.shouldGuess()) {
       _triggerGuess(engine, newCount);
     } else {
-      // Show thinking animation between questions
       setPhase(PHASE.THINKING);
       setTimeout(() => {
         const nextQ = engine.getNextQuestion();
@@ -121,22 +139,9 @@ const startGame = useCallback((theme = 'all') => {
         setPhase(PHASE.QUESTION);
       }, 800 + Math.random() * 600);
     }
-  }, [currentQ, questionCount]);
+  }, [currentQ, questionCount, _triggerGuess]);
 
-  // ── Trigger the guess sequence ────────────────────────────
-  const _triggerGuess = useCallback((engine, qCount) => {
-    setPhase(PHASE.GUESSING);
-
-    setTimeout(() => {
-      const bestGuess  = engine.getBestGuess();
-      const conf       = engine.getConfidence();
-      setGuess(bestGuess);
-      setConfidence(conf);
-      setPhase(PHASE.RESULT);
-    }, 2200);
-  }, []);
-
-  // ── Player says guess was correct ─────────────────────────
+  // ── Correct guess ─────────────────────────────────────────
   const handleCorrect = useCallback(() => {
     setIsCorrect(true);
     const qCount = questionCount;
@@ -150,27 +155,23 @@ const startGame = useCallback((theme = 'all') => {
         streak:         prev.streak + 1,
         bestStreak:     Math.max(prev.bestStreak, prev.streak + 1),
         fastestWin:     prev.fastestWin === null
-          ? qCount
-          : Math.min(prev.fastestWin, qCount),
+          ? qCount : Math.min(prev.fastestWin, qCount),
         longestGame:    prev.longestGame === null
-          ? qCount
-          : Math.max(prev.longestGame, qCount),
+          ? qCount : Math.max(prev.longestGame, qCount),
       };
       saveStats(next);
       return next;
     });
   }, [questionCount]);
 
-  // ── Player says guess was wrong ───────────────────────────
+  // ── Wrong guess ───────────────────────────────────────────
   const handleWrong = useCallback(() => {
     setIsCorrect(false);
 
-    // Check if there are more candidates to try
-    const engine = engineRef.current;
+    const engine    = engineRef.current;
     const remaining = engine.getTopCandidates(3);
 
     if (remaining.length > 1) {
-      // Try next best candidate
       engine.candidates = engine.candidates.filter(c => c.id !== guess?.id);
       setPhase(PHASE.GUESSING);
 
@@ -183,7 +184,6 @@ const startGame = useCallback((theme = 'all') => {
         setIsCorrect(null);
       }, 1800);
     } else {
-      // Give up — enter learning mode
       setStats(prev => {
         const next = {
           ...prev,
@@ -198,7 +198,7 @@ const startGame = useCallback((theme = 'all') => {
     }
   }, [guess, questionCount]);
 
-  // ── Continue asking more questions ────────────────────────
+  // ── Continue ──────────────────────────────────────────────
   const handleContinue = useCallback(() => {
     const engine = engineRef.current;
     engine.candidates = engine.candidates.filter(c => c.id !== guess?.id);
@@ -217,14 +217,13 @@ const startGame = useCallback((theme = 'all') => {
     }, 900);
   }, [guess, questionCount, _triggerGuess]);
 
-  // ── Submit a learned answer ────────────────────────────────
+  // ── Learn submit ──────────────────────────────────────────
   const handleLearnSubmit = useCallback(() => {
     if (!learnName.trim()) return;
 
-    const engine = engineRef.current;
-
-    // Build attribute map from answers
+    const engine       = engineRef.current;
     const learnedAttrs = {};
+
     answers.forEach(a => {
       learnedAttrs[a.attribute] =
         a.answer === 'yes' || a.answer === 'probably';
@@ -234,7 +233,7 @@ const startGame = useCallback((theme = 'all') => {
     setPhase(PHASE.HOME);
   }, [learnName, answers]);
 
-  // ── Reset entirely ────────────────────────────────────────
+  // ── Reset ─────────────────────────────────────────────────
   const resetGame = useCallback(() => {
     setPhase(PHASE.HOME);
     setAnswers([]);
@@ -246,27 +245,17 @@ const startGame = useCallback((theme = 'all') => {
     setLearnAttr('');
   }, []);
 
-  // ── Toggle dark mode ──────────────────────────────────────
-  const toggleDarkMode = useCallback(() => {
-    setDarkMode(d => !d);
-  }, []);
+  // ── Toggles ───────────────────────────────────────────────
+  const toggleDarkMode = useCallback(() => setDarkMode(d => !d), []);
+  const toggleSound    = useCallback(() => setSoundEnabled(s => !s), []);
 
-  // ── Toggle sound ──────────────────────────────────────────
-  const toggleSound = useCallback(() => {
-    setSoundEnabled(s => !s);
-  }, []);
-
-  // ── Win rate helper ───────────────────────────────────────
   const winRate = stats.gamesPlayed > 0
-    ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100)
-    : 0;
+    ? Math.round((stats.gamesWon / stats.gamesPlayed) * 100) : 0;
 
   const avgQuestions = stats.gamesPlayed > 0
-    ? Math.round(stats.totalQuestions / stats.gamesPlayed)
-    : 0;
+    ? Math.round(stats.totalQuestions / stats.gamesPlayed) : 0;
 
   return {
-    // State
     phase,
     currentQ,
     questionCount,
@@ -281,8 +270,6 @@ const startGame = useCallback((theme = 'all') => {
     learnAttr,
     soundEnabled,
     darkMode,
-
-    // Actions
     startGame,
     handleAnswer,
     handleCorrect,
